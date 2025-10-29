@@ -2,6 +2,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { signIn, signOut } from "next-auth/react";
 
+type CurrentUser = { id: string; name: string | null; email: string } | null;
+
 export function useAuthActions() {
   const queryclient = useQueryClient();
 
@@ -13,7 +15,7 @@ export function useAuthActions() {
 
     // }
 
-    queryclient.setQueryData(["currentUser"], {
+    queryclient.setQueryData<CurrentUser>(["currentUser"], {
         id: "temp",
         email,
         name: email.split("@")[0] || null,
@@ -21,13 +23,21 @@ export function useAuthActions() {
   
 
     const res = await signIn("credentials", { email, password, redirect: false });
+    if (!res?.ok) {
+      // ⬅ revert immediately on failure, don't wait for invalidate
+      queryclient.setQueryData<CurrentUser>(["currentUser"], null);
+      return res;
+    }
+
     await queryclient.invalidateQueries({ queryKey: ["currentUser"] });
     return res;
   }
 
   async function logout() {
+    
     await signOut({ redirect: false });
-    queryclient.setQueryData(["currentUser"], null);
+    queryclient.setQueryData<CurrentUser>(["currentUser"], null);
+    // queryclient.setQueryData(["currentUser"], null);
     queryclient.invalidateQueries({ queryKey: ["currentUser"] });
     // await queryclient.invalidateQueries({ queryKey: ["currentUser"] });
   }

@@ -23,11 +23,11 @@ export const authOptions: NextAuthOptions = {
         }
 
         // tiny random delay, 100–250 ms
-    await new Promise(r => setTimeout(r, 100 + Math.floor(Math.random() * 150)));
+        await new Promise(r => setTimeout(r, 100 + Math.floor(Math.random() * 150)));
 
         const user = await prisma.user.findUnique({
           where: { email },
-          select: { id:true, email:true, name:true, password:true}
+          select: { id: true, email: true, name: true, password: true }
         })
 
         if (!user || !user.password) {
@@ -54,18 +54,26 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: '/login',
   },
+  // in your NextAuth callbacks (you already set token.uid)
+  // add this if you want to avoid the DB read in /api/user:
   callbacks: {
     async jwt({ token, user }) {
-      if (user) token.uid = user.id
-      return token
+      if (user) {
+        token.uid = user.id;
+        token.name = user.name || token.name;   // keep name fresh
+        token.email = user.email || token.email;
+      }
+      return token;
     },
     async session({ session, token }) {
-      if (session.user && token?.uid) {
-        // add id to the session object the client sees
+      if (session.user) {
         // @ts-ignore
-        session.user.id = token.uid
+        session.user.id = token.uid as string;
+        // make sure name/email are present
+        session.user.name = token.name as string | null ?? session.user.name ?? null;
+        session.user.email = token.email as string ?? session.user.email!;
       }
-      return session
+      return session;
     }
   },
   secret: process.env.NEXTAUTH_SECRET,

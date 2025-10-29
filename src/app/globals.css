@@ -3,6 +3,17 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --primary: #f7bacf;
+  --background-light: #FAF9F6;
+  --background-dark: #211116;
+  --ivory: #FAF9F6;
+  --blush: #F1D4D4;
+  --champagne: #F7E7CE;
+  --gold: #A98F64;
+  --charcoal: #333333;
+  --login-primary: #f7bbd0;
+  --login-light: #f8f6f6;
+  --login-dark: #f8f6f6;
 }
 
 @theme inline {
@@ -11,6 +22,17 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-poppins: var(--font-poppins);
+  --color-primary: var(--primary);
+  --color-background-light: var(--background-light);
+  --color-background-dark: var(--background-dark);
+  --color-ivory: var(--ivory);
+  --color-blush: var(--blush);
+  --color-champagne: var(--champagne);
+  --color-gold: var(--gold);
+  --color-charcoal: var(--charcoal);
+  --color-login-primary: var(--login-primary);
+  --color-login-light: var(--login-light);
+  --color-login-dark: var(--login-dark);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -21,8 +43,8 @@
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--ivory);
+  color: var(--charcoal);
   font-family: Arial, Helvetica, sans-serif;
   font-family: var(--font-poppins);
 }
