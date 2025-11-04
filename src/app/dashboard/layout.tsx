@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useAuthActions } from "@/hooks/useAuthActions";
 import { useRouter } from 'next/navigation';
 import { NavLink } from "@/components/Dashboard/NavLinks";
+import { useState } from "react";
 
 
 type LinkItem = {
@@ -41,6 +42,8 @@ export default function DashboardLayout({
     children: React.ReactNode;
 }>
 ) {
+
+    const [demoCreated, setDemoCreated] = useState(true);
 
     const { logout } = useAuthActions();
     const router = useRouter();
@@ -85,6 +88,17 @@ export default function DashboardLayout({
                         ))}
                     </nav>
                 </div>
+                <div>
+                    <div className="p-4 text-center">
+                        {
+                            demoCreated ? (
+                                <Link href={'/demo'} className="text-sm bg-[#f7bacf] inline-block py-4 px-12 font-semibold rounded-full">Create Microsite</Link>
+                            ) : (
+                                <Link href={'/demo'} className="bg-[#f7bacf] inline-block py-4 px-12 font-semibold rounded-full">View Microsite</Link>
+                            )
+                        }
+                    </div>
+
                 <div className="p-4 border-t border-[#e5dcdf]" onClick={handleLogout}>
                     <a
                         className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
@@ -93,6 +107,7 @@ export default function DashboardLayout({
                         <LogOut className="w-5 h-5" />
                         <p className="text-sm font-medium leading-normal">Log Out</p>
                     </a>
+                </div>
                 </div>
             </aside>
 

@@ -121,7 +121,7 @@ export default withAuth(
     // Public pages:
     // - Home page "/"
     // - Login page for unauthenticated users
-    const isPublicPage = pathname === "/" || isLoginPage || pathname === '/auth/register';
+    const isPublicPage = pathname === "/" || isLoginPage || pathname === '/auth/register' || pathname.startsWith('/demo');
 
     // If user is authenticated and tries to access ANY auth page (including /auth/login),
     // redirect them to home

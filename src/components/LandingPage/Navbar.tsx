@@ -200,9 +200,12 @@ const Navbar = () => {
               >
                 <span className="truncate">Logout</span>
               </button>
-              <div className="flex h-10 min-w-[84px] max-w-[480px] items-center justify-center overflow-hidden rounded-full bg-gold px-5 text-sm font-bold leading-normal text-white">
-                <span className="truncate">Welcome {user.name ?? user.email}</span>
-              </div>
+              <Link
+                href={'/dashboard'}
+                className="flex h-10 min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-full bg-gold px-5 text-sm font-bold leading-normal text-white transition-opacity hover:opacity-90"
+              >
+                <span className="truncate"> Welcome, {user.name}. Access Dashboard</span>
+              </Link>
             </div>
           ) : (
             // Unauthenticated state
