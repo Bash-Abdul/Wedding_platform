@@ -1,24 +1,245 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
-  // output   = "../src/generated/prisma"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
-  // shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  directUrl         = env("DIRECT_URL")
+  // shadowDatabaseUrl = env("SHADOW_DATABASE_URL") // Good to uncomment this
+}
+
+// ----------------------------------------------
+// ENUMS (Used in the models below)
+// ----------------------------------------------
+
+// Point 8: Subscription Plans
+enum SubscriptionPlan {
+  FREE
+  PAID
+}
+
+// Point 2: Couple/Partner roles
+enum WeddingMemberRole {
+  OWNER    // The person who created the wedding
+  PARTNER  // The person invited by the owner
+}
+
+// Status for guest RSVPs
+enum RsvpStatus {
+  PENDING
+  ATTENDING
+  DECLINED
+}
+
+// ----------------------------------------------
+// AUTH MODELS (For Point 2: Account Creation)
+// Standard NextAuth.js models for email/pass + Google/Apple
+// ----------------------------------------------
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model User {
-  id       String  @id @default(cuid())
-  email    String  @unique
-  name     String?
-  password String
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String? // For email/password login
+  accounts      Account[]
+  sessions      Session[]
+
+  // A user can be a member of multiple weddings (e.g., their own, a friend's)
+  weddingMembers WeddingMember[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ----------------------------------------------
+// WEDDING PLATFORM MODELS (Based on MVP)
+// ----------------------------------------------
+
+// This is the main model for the entire wedding event.
+model Wedding {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Point 2: Profile setup
+  coupleNames   String // e.g., "Alex & Jordan"
+  weddingDate   DateTime
+  location      String?
+
+  // Point 4: Wedding Website Generation (theirnames.weddingly.app)
+  subdomain     String   @unique // e.g., "theominisparty"
+
+  // Point 4: Website content
+  ourStory      String? @db.Text
+  venueName     String?
+  venueAddress  String?
+  eventTime     String? // e.g., "4:00 PM"
+
+  // Point 3: Design Setup & Point 10: Backend Logic
+  // Stores { "photoUrl": "...", "palette": "romantic_blush", "customColor": "#..." }
+  themeConfig   Json     @default("{}")
+
+  // Point 4: Toggle pages on/off
+  // Stores { "showGallery": true, "showGuestbook": true, "showRegistry": true }
+  pageSettings  Json     @default("{\"showGallery\": true, \"showGuestbook\": true, \"showRegistry\": true}")
+
+  // Point 8: Subscription Plans
+  subscriptionPlan SubscriptionPlan @default(FREE)
+  stripeCustomerId String?          @unique // For managing payments
+
+  // --- Relations ---
+  // A wedding is managed by its members (the couple)
+  members           WeddingMember[]
+  // A wedding has a list of guests
+  guests            Guest[]
+  // A wedding has a gallery of photos (Point 7)
+  galleryPhotos     GalleryPhoto[]
+  // A wedding has a wishlist/registry (Point 7)
+  registryItems     RegistryItem[]
+  // A wedding has a guestbook (Point 4 & 9)
+  guestbookEntries  GuestbookEntry[]
+}
+
+// Bridge table to link Users to a Wedding (Point 2: Invite partner)
+// This allows both partners to manage the same Wedding object.
+model WeddingMember {
+  id        String            @id @default(cuid())
+  role      WeddingMemberRole @default(OWNER)
+  
+  userId    String
+  user      User              @relation(fields: [userId], references: [id])
+  
+  weddingId String
+  wedding   Wedding           @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weddingId]) // A user can only be in a specific wedding once
+}
+
+// Point 9: Guest Experience
+model Guest {
+  id            String     @id @default(cuid())
+  name          String
+  email         String?    // Optional, for sending updates
+  
+  rsvpStatus    RsvpStatus @default(PENDING)
+  
+  // For tracking +1s
+  allowedPlusOnes     Int @default(0)
+  attendingGuests     Int @default(1) // How many are *actually* coming
+  
+  dietaryRestrictions String?
+
+  weddingId String
+  wedding   Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+
+  @@index([weddingId])
+}
+
+// Point 7: Dashboard (CRUD on uploaded images)
+model GalleryPhoto {
+  id        String   @id @default(cuid())
+  url       String   // URL from your file storage (e.g., S3, Cloudinary)
+  caption   String?
+  order     Int      @default(0) // To allow reordering
+  createdAt DateTime @default(now())
+  
+  weddingId String
+  wedding   Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+
+  @@index([weddingId])
+}
+
+// Point 7: Create wishlist for gifts
+model RegistryItem {
+  id               String    @id @default(cuid())
+  name             String
+  description      String?   @db.Text
+  imageUrl         String?
+  itemUrl          String?   // Link to an external store
+  
+  // For cash funds (e.g., Honeymoon Fund)
+  isCashFund       Boolean   @default(false)
+  requestedAmount  Decimal?  // Use Decimal for money
+  receivedAmount   Decimal   @default(0)
+
+  // For physical items
+  isPurchased      Boolean   @default(false)
+  
+  weddingId String
+  wedding   Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  
+  // See who gifted this
+  purchases GiftPurchase[]
+
+  @@index([weddingId])
+}
+
+// Point 9: Option to gift the couples through a payment platform
+model GiftPurchase {
+  id          String   @id @default(cuid())
+  guestName   String
+  guestEmail  String?
+  amount      Decimal  // Amount gifted
+  message     String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  // Link to the registry item they gifted
+  registryItemId String
+  registryItem   RegistryItem @relation(fields: [registryItemId], references: [id], onDelete: Cascade)
+
+  @@index([registryItemId])
+}
+
+
+// Point 9: Option to upload a message or photo
+model GuestbookEntry {
+  id          String   @id @default(cuid())
+  authorName  String
+  message     String   @db.Text
+  imageUrl    String?  // If they upload a photo
+  createdAt   DateTime @default(now())
+  isApproved  Boolean  @default(false) // For moderation
+  
+  weddingId String
+  wedding   Wedding @relation(fields: [weddingId], references: [id], onDelete:Cascade)
+
+  @@index([weddingId])
 }
