@@ -21,4 +21,134 @@ model User {
   email    String  @unique
   name     String?
   password String
+
+  // one-to-one: a user has at most one event
+  event Event?
+
+  wishlist WishlistItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model Event {
+  id String @id @default(cuid())
+
+  // one-to-one owner, unique enforces a single event per user
+  ownerId String @unique
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  title         String // couple names or event title
+  subdomain     String   @unique // "jay-weds-amy" used as jay-weds-amy.ourvows.com
+  timeZone      String // IANA, example "Europe/London"
+  ceremonyAt    DateTime // store UTC
+  coverImageUrl String? // hero image
+  isPublic      Boolean  @default(true)
+  themeJson     Json? // design config blob
+
+  images  Image[]
+  // wishlistItems WishlistItem[]
+  gifts   Gift[]
+  qrcodes QRCode[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subdomain])
+}
+
+model Image {
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  provider    String // "cloudinary" or "uploadthing"
+  providerKey String // public_id or key for deletion
+  url         String // public URL to render
+
+  width         Int?
+  height        Int?
+  takenAt       DateTime?
+  uploaderName  String?
+  uploaderEmail String?
+
+  deletedAt DateTime? // soft delete
+
+  createdAt DateTime @default(now())
+
+  @@index([eventId])
+  @@index([eventId, deletedAt])
+  @@index([provider, providerKey])
+}
+
+model WishlistItem {
+  id      String @id @default(cuid())
+  // eventId       String
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  // event         Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  title        String
+  description  String?
+  imageUrl     String?
+  externalLink String?
+  targetAmount Int // cents
+  fundedAmount Int     @default(0) // cents
+  allowPartial Boolean @default(true)
+  accentColor  String?
+  // isActive      Boolean @default(true)
+
+  gifts Gift[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // @@index([eventId, isActive])
+  @@index([ownerId])
+}
+
+enum GiftStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
+model Gift {
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  wishlistItemId String?
+  wishlistItem   WishlistItem? @relation(fields: [wishlistItemId], references: [id], onDelete: SetNull)
+
+  amount     Int // cents
+  currency   String // "gbp"
+  payerName  String?
+  payerEmail String?
+
+  provider        String? // "stripe"
+  paymentIntentId String?
+  status          GiftStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  @@index([eventId, status])
+  @@index([wishlistItemId])
+}
+
+enum QRType {
+  UPLOAD
+  GIFT
+}
+
+model QRCode {
+  id      String @id @default(cuid())
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  code      String   @unique // short token for /q/abc123
+  type      QRType
+  createdAt DateTime @default(now())
+
+  @@index([eventId, type])
 }
