@@ -9,35 +9,39 @@ datasource db {
   provider          = "postgresql"
   url               = env("DATABASE_URL")
   directUrl         = env("DIRECT_URL")
-  // shadowDatabaseUrl = env("SHADOW_DATABASE_URL") // Good to uncomment this
+  // shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 // ----------------------------------------------
 // ENUMS (Used in the models below)
 // ----------------------------------------------
 
-// Point 8: Subscription Plans
 enum SubscriptionPlan {
   FREE
   PAID
 }
 
-// Point 2: Couple/Partner roles
-enum WeddingMemberRole {
-  OWNER    // The person who created the wedding
-  PARTNER  // The person invited by the owner
+enum GiftStatus {
+  PENDING
+  PAID
+  REFUNDED
 }
 
-// Status for guest RSVPs
-enum RsvpStatus {
-  PENDING
-  ATTENDING
-  DECLINED
+enum QRType {
+  UPLOAD
+  GIFT
+}
+
+// +++ ADDED: For the new signup flow
+enum CreatorRole {
+  BRIDE
+  GROOM
+  // You could add PARTNER, FRIEND, PLANNER etc. later
 }
 
 // ----------------------------------------------
 // AUTH MODELS (For Point 2: Account Creation)
-// Standard NextAuth.js models for email/pass + Google/Apple
+// +++ RE-INTRODUCED: Standard NextAuth.js models
 // ----------------------------------------------
 
 model Account {
@@ -73,12 +77,15 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
-  password      String? // For email/password login
+  password      String? // +++ ADDED: To support email/password login
   accounts      Account[]
   sessions      Session[]
 
-  // A user can be a member of multiple weddings (e.g., their own, a friend's)
-  weddingMembers WeddingMember[]
+  // +++ UPDATED: one-to-one relation to the renamed event
+  weddingEvent WeddingEvent?
+
+  // +++ KEPT: Relation from the lean schema
+  wishlist WishlistItem[]
 }
 
 model VerificationToken {
@@ -89,157 +96,138 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+
 // ----------------------------------------------
-// WEDDING PLATFORM MODELS (Based on MVP)
+// WEDDING PLATFORM MODELS
 // ----------------------------------------------
 
-// This is the main model for the entire wedding event.
-model Wedding {
-  id            String   @id @default(cuid())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+// +++ RENAMED: from Event to WeddingEvent
+model WeddingEvent {
+  id String @id @default(cuid())
+
+  // one-to-one owner, unique enforces a single event per user
+  ownerId String @unique
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  // This is the "wedding account name" / "title" from your prompt
+  title         String // e.g., "Alex & Jordan's Wedding"
   
-  // Point 2: Profile setup
-  coupleNames   String // e.g., "Alex & Jordan"
-  weddingDate   DateTime
-  location      String?
+  // +++ ADDED: Fields from the new signup flow
+  creatorRole CreatorRole? // Stores the signup radio button choice
+  partnerName String?      // Stores the "significant other's name"
 
-  // Point 4: Wedding Website Generation (theirnames.weddingly.app)
-  subdomain     String   @unique // e.g., "theominisparty"
+  // This is the custom URL
+  subdomain     String   @unique // "alex-and-jordan"
+  
+  timeZone      String   // IANA, example "Europe/London"
+  ceremonyAt    DateTime // store UTC
+  coverImageUrl String?  // hero image
+  isPublic      Boolean  @default(true)
+  themeJson     Json?    // design config blob
 
-  // Point 4: Website content
-  ourStory      String? @db.Text
-  venueName     String?
-  venueAddress  String?
-  eventTime     String? // e.g., "4:00 PM"
-
-  // Point 3: Design Setup & Point 10: Backend Logic
-  // Stores { "photoUrl": "...", "palette": "romantic_blush", "customColor": "#..." }
-  themeConfig   Json     @default("{}")
-
-  // Point 4: Toggle pages on/off
-  // Stores { "showGallery": true, "showGuestbook": true, "showRegistry": true }
-  pageSettings  Json     @default("{\"showGallery\": true, \"showGuestbook\": true, \"showRegistry\": true}")
-
-  // Point 8: Subscription Plans
+  // Merged fields from the first schema
+  location         String?
+  ourStory         String? @db.Text
+  venueName        String?
+  venueAddress     String?
   subscriptionPlan SubscriptionPlan @default(FREE)
-  stripeCustomerId String?          @unique // For managing payments
+  stripeCustomerId String?          @unique
 
-  // --- Relations ---
-  // A wedding is managed by its members (the couple)
-  members           WeddingMember[]
-  // A wedding has a list of guests
-  guests            Guest[]
-  // A wedding has a gallery of photos (Point 7)
-  galleryPhotos     GalleryPhoto[]
-  // A wedding has a wishlist/registry (Point 7)
-  registryItems     RegistryItem[]
-  // A wedding has a guestbook (Point 4 & 9)
-  guestbookEntries  GuestbookEntry[]
-}
+  // Relations
+  images  Image[]
+  gifts   Gift[]
+  qrcodes QRCode[]
 
-// Bridge table to link Users to a Wedding (Point 2: Invite partner)
-// This allows both partners to manage the same Wedding object.
-model WeddingMember {
-  id        String            @id @default(cuid())
-  role      WeddingMemberRole @default(OWNER)
-  
-  userId    String
-  user      User              @relation(fields: [userId], references: [id])
-  
-  weddingId String
-  wedding   Wedding           @relation(fields: [weddingId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, weddingId]) // A user can only be in a specific wedding once
-}
-
-// Point 9: Guest Experience
-model Guest {
-  id            String     @id @default(cuid())
-  name          String
-  email         String?    // Optional, for sending updates
-  
-  rsvpStatus    RsvpStatus @default(PENDING)
-  
-  // For tracking +1s
-  allowedPlusOnes     Int @default(0)
-  attendingGuests     Int @default(1) // How many are *actually* coming
-  
-  dietaryRestrictions String?
-
-  weddingId String
-  wedding   Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
-
-  @@index([weddingId])
-}
-
-// Point 7: Dashboard (CRUD on uploaded images)
-model GalleryPhoto {
-  id        String   @id @default(cuid())
-  url       String   // URL from your file storage (e.g., S3, Cloudinary)
-  caption   String?
-  order     Int      @default(0) // To allow reordering
   createdAt DateTime @default(now())
-  
-  weddingId String
-  wedding   Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
+  updatedAt DateTime @updatedAt
 
-  @@index([weddingId])
+  @@index([subdomain])
 }
 
-// Point 7: Create wishlist for gifts
-model RegistryItem {
-  id               String    @id @default(cuid())
-  name             String
-  description      String?   @db.Text
-  imageUrl         String?
-  itemUrl          String?   // Link to an external store
+model Image {
+  id String @id @default(cuid())
   
-  // For cash funds (e.g., Honeymoon Fund)
-  isCashFund       Boolean   @default(false)
-  requestedAmount  Decimal?  // Use Decimal for money
-  receivedAmount   Decimal   @default(0)
+  // +++ UPDATED: Relation to WeddingEvent
+  weddingEventId String
+  weddingEvent   WeddingEvent @relation(fields: [weddingEventId], references: [id], onDelete: Cascade)
 
-  // For physical items
-  isPurchased      Boolean   @default(false)
-  
-  weddingId String
-  wedding   Wedding @relation(fields: [weddingId], references: [id], onDelete: Cascade)
-  
-  // See who gifted this
-  purchases GiftPurchase[]
+  provider    String // "cloudinary" or "uploadthing"
+  providerKey String // public_id or key for deletion
+  url         String // public URL to render
 
-  @@index([weddingId])
+  width         Int?
+  height        Int?
+  takenAt       DateTime?
+  uploaderName  String?
+  uploaderEmail String?
+
+  deletedAt DateTime? // soft delete
+  createdAt DateTime @default(now())
+
+  @@index([weddingEventId])
+  @@index([weddingEventId, deletedAt])
+  @@index([provider, providerKey])
 }
 
-// Point 9: Option to gift the couples through a payment platform
-model GiftPurchase {
-  id          String   @id @default(cuid())
-  guestName   String
-  guestEmail  String?
-  amount      Decimal  // Amount gifted
-  message     String?  @db.Text
-  createdAt   DateTime @default(now())
+model WishlistItem {
+  id      String @id @default(cuid())
+  
+  // +++ KEPT: Relation from the lean schema
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
-  // Link to the registry item they gifted
-  registryItemId String
-  registryItem   RegistryItem @relation(fields: [registryItemId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  imageUrl     String?
+  externalLink String?
+  targetAmount Int // cents
+  fundedAmount Int     @default(0) // cents
+  allowPartial Boolean @default(true)
+  accentColor  String?
 
-  @@index([registryItemId])
+  gifts Gift[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
 }
 
-
-// Point 9: Option to upload a message or photo
-model GuestbookEntry {
-  id          String   @id @default(cuid())
-  authorName  String
-  message     String   @db.Text
-  imageUrl    String?  // If they upload a photo
-  createdAt   DateTime @default(now())
-  isApproved  Boolean  @default(false) // For moderation
+model Gift {
+  id      String @id @default(cuid())
   
-  weddingId String
-  wedding   Wedding @relation(fields: [weddingId], references: [id], onDelete:Cascade)
+  // +++ UPDATED: Relation to WeddingEvent
+  weddingEventId String
+  weddingEvent   WeddingEvent @relation(fields: [weddingEventId], references: [id], onDelete: Cascade)
 
-  @@index([weddingId])
+  wishlistItemId String?
+  wishlistItem   WishlistItem? @relation(fields: [wishlistItemId], references: [id], onDelete: SetNull)
+
+  amount     Int // cents
+  currency   String // "gbp"
+  payerName  String?
+  payerEmail String?
+
+  provider        String? // "stripe"
+  paymentIntentId String?
+  status          GiftStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  @@index([weddingEventId, status])
+  @@index([wishlistItemId])
+}
+
+model QRCode {
+  id      String @id @default(cuid())
+  
+  // +++ UPDATED: Relation to WeddingEvent
+  weddingEventId String
+  weddingEvent   WeddingEvent @relation(fields: [weddingEventId], references: [id], onDelete: Cascade)
+
+  code      String   @unique // short token for /q/abc123
+  type      QRType
+  createdAt DateTime @default(now())
+
+  @@index([weddingEventId, type])
 }
