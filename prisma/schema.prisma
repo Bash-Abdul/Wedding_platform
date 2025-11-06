@@ -1,53 +1,140 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
-  // output   = "../src/generated/prisma"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  directUrl         = env("DIRECT_URL")
   // shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
-model User {
-  id       String  @id @default(cuid())
-  email    String  @unique
-  name     String?
-  password String
+// ----------------------------------------------
+// ENUMS (Used in the models below)
+// ----------------------------------------------
 
-  // one-to-one: a user has at most one event
-  event Event?
-
-  wishlist WishlistItem[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+enum SubscriptionPlan {
+  FREE
+  PAID
 }
 
-model Event {
+enum GiftStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
+enum QRType {
+  UPLOAD
+  GIFT
+}
+
+// +++ ADDED: For the new signup flow
+enum CreatorRole {
+  BRIDE
+  GROOM
+  // You could add PARTNER, FRIEND, PLANNER etc. later
+}
+
+// ----------------------------------------------
+// AUTH MODELS (For Point 2: Account Creation)
+// +++ RE-INTRODUCED: Standard NextAuth.js models
+// ----------------------------------------------
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String? // +++ ADDED: To support email/password login
+  accounts      Account[]
+  sessions      Session[]
+
+  // +++ UPDATED: one-to-one relation to the renamed event
+  weddingEvent WeddingEvent?
+
+  // +++ KEPT: Relation from the lean schema
+  wishlist WishlistItem[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+
+// ----------------------------------------------
+// WEDDING PLATFORM MODELS
+// ----------------------------------------------
+
+// +++ RENAMED: from Event to WeddingEvent
+model WeddingEvent {
   id String @id @default(cuid())
 
   // one-to-one owner, unique enforces a single event per user
   ownerId String @unique
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
-  title         String // couple names or event title
-  subdomain     String   @unique // "jay-weds-amy" used as jay-weds-amy.ourvows.com
-  timeZone      String // IANA, example "Europe/London"
-  ceremonyAt    DateTime // store UTC
-  coverImageUrl String? // hero image
-  isPublic      Boolean  @default(true)
-  themeJson     Json? // design config blob
+  // This is the "wedding account name" / "title" from your prompt
+  title         String // e.g., "Alex & Jordan's Wedding"
+  
+  // +++ ADDED: Fields from the new signup flow
+  creatorRole CreatorRole? // Stores the signup radio button choice
+  partnerName String?      // Stores the "significant other's name"
 
+  // This is the custom URL
+  subdomain     String   @unique // "alex-and-jordan"
+  
+  timeZone      String   // IANA, example "Europe/London"
+  ceremonyAt    DateTime // store UTC
+  coverImageUrl String?  // hero image
+  isPublic      Boolean  @default(true)
+  themeJson     Json?    // design config blob
+
+  // Merged fields from the first schema
+  location         String?
+  ourStory         String? @db.Text
+  venueName        String?
+  venueAddress     String?
+  subscriptionPlan SubscriptionPlan @default(FREE)
+  stripeCustomerId String?          @unique
+
+  // Relations
   images  Image[]
-  // wishlistItems WishlistItem[]
   gifts   Gift[]
   qrcodes QRCode[]
 
@@ -58,9 +145,11 @@ model Event {
 }
 
 model Image {
-  id      String @id @default(cuid())
-  eventId String
-  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+  
+  // +++ UPDATED: Relation to WeddingEvent
+  weddingEventId String
+  weddingEvent   WeddingEvent @relation(fields: [weddingEventId], references: [id], onDelete: Cascade)
 
   provider    String // "cloudinary" or "uploadthing"
   providerKey String // public_id or key for deletion
@@ -73,20 +162,19 @@ model Image {
   uploaderEmail String?
 
   deletedAt DateTime? // soft delete
-
   createdAt DateTime @default(now())
 
-  @@index([eventId])
-  @@index([eventId, deletedAt])
+  @@index([weddingEventId])
+  @@index([weddingEventId, deletedAt])
   @@index([provider, providerKey])
 }
 
 model WishlistItem {
   id      String @id @default(cuid())
-  // eventId       String
+  
+  // +++ KEPT: Relation from the lean schema
   ownerId String
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  // event         Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   title        String
   description  String?
@@ -96,27 +184,21 @@ model WishlistItem {
   fundedAmount Int     @default(0) // cents
   allowPartial Boolean @default(true)
   accentColor  String?
-  // isActive      Boolean @default(true)
 
   gifts Gift[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // @@index([eventId, isActive])
   @@index([ownerId])
-}
-
-enum GiftStatus {
-  PENDING
-  PAID
-  REFUNDED
 }
 
 model Gift {
   id      String @id @default(cuid())
-  eventId String
-  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  
+  // +++ UPDATED: Relation to WeddingEvent
+  weddingEventId String
+  weddingEvent   WeddingEvent @relation(fields: [weddingEventId], references: [id], onDelete: Cascade)
 
   wishlistItemId String?
   wishlistItem   WishlistItem? @relation(fields: [wishlistItemId], references: [id], onDelete: SetNull)
@@ -132,23 +214,20 @@ model Gift {
 
   createdAt DateTime @default(now())
 
-  @@index([eventId, status])
+  @@index([weddingEventId, status])
   @@index([wishlistItemId])
-}
-
-enum QRType {
-  UPLOAD
-  GIFT
 }
 
 model QRCode {
   id      String @id @default(cuid())
-  eventId String
-  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  
+  // +++ UPDATED: Relation to WeddingEvent
+  weddingEventId String
+  weddingEvent   WeddingEvent @relation(fields: [weddingEventId], references: [id], onDelete: Cascade)
 
   code      String   @unique // short token for /q/abc123
   type      QRType
   createdAt DateTime @default(now())
 
-  @@index([eventId, type])
+  @@index([weddingEventId, type])
 }
