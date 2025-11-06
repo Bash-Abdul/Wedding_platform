@@ -49,15 +49,16 @@ export const authOptions: NextAuthOptions = {
     })
   ],
   session: {
-    strategy: 'jwt'
+    strategy: 'jwt',
+    maxAge:   7 * 60 * 60,
   },
   pages: {
-    signIn: '/login',
+    signIn: '/auth/login',
   },
   // in your NextAuth callbacks (you already set token.uid)
   // add this if you want to avoid the DB read in /api/user:
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.uid = user.id;
         token.name = user.name || token.name;   // keep name fresh
@@ -66,7 +67,7 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
-      if (session.user) {
+      if (session.user && token) {
         // @ts-ignore
         session.user.id = token.uid as string;
         // make sure name/email are present
@@ -77,4 +78,5 @@ export const authOptions: NextAuthOptions = {
     }
   },
   secret: process.env.NEXTAUTH_SECRET,
+  debug: process.env.NODE_ENV === 'development',
 }

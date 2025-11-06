@@ -7,7 +7,7 @@ type CurrentUser = { id: string; name: string | null; email: string } | null;
 export function useAuthActions() {
   const queryclient = useQueryClient();
 
-  async function login(email: string, password: string, opts?: { optimisticName?: string }) {
+  async function login(email: string, password: string) {
     // optimistic UI, optional, safe to remove if you do not want it
     // if (opts?.optimisticName) {
     // //   queryclient.setQueryData(["currentUser"], { user: { id: "temp", email, name: opts.optimisticName } });
@@ -29,17 +29,40 @@ export function useAuthActions() {
       return res;
     }
 
-    await queryclient.invalidateQueries({ queryKey: ["currentUser"] });
+    // Wait a bit for NextAuth to set the session cookie properly
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Now invalidate to fetch real data
+    // OLDD
+    // await queryclient.invalidateQueries({ queryKey: ["currentUser"] });
+
+    // Force refetch to get real user data
+    await queryclient.invalidateQueries({ 
+      queryKey: ["currentUser"],
+      refetchType: 'active' 
+    });
+    
+    // Give it a moment to refetch
+    // await new Promise(resolve => setTimeout(resolve, 100));
+
+    
     return res;
   }
 
   async function logout() {
+    // // Set to null immediately for instant UI feedback
+    // queryclient.setQueryData<CurrentUser>(["currentUser"], null);
+
+    //     // Sign out from NextAuth
+    // await signOut({ redirect: false });
     
-    await signOut({ redirect: false });
-    queryclient.setQueryData<CurrentUser>(["currentUser"], null);
-    // queryclient.setQueryData(["currentUser"], null);
-    queryclient.invalidateQueries({ queryKey: ["currentUser"] });
+
+    // // Invalidate to ensure fresh state
     // await queryclient.invalidateQueries({ queryKey: ["currentUser"] });
+
+    queryclient.removeQueries({ queryKey: ["currentUser"] }); // drop cache
+  await signOut({ redirect: false });
+  // no invalidate that could trigger a refetch
   }
 
   return { login, logout };

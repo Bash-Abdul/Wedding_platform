@@ -21,9 +21,9 @@ export function useCurrentUser() {
         return null;
       }
     },
-    initialData: null,                 // prevents loading flash
+    // initialData: null,                 // prevents loading flash
     refetchOnMount: false,             // you control refresh via invalidate
-    refetchOnWindowFocus: false,       // optional calm
+    refetchOnWindowFocus: true,       // optional calm
     staleTime: 5 * 60 * 1000,          // 5 min "fresh"
     gcTime: 30 * 60 * 1000,            // keep cache 30 min before garbage-collect
     retry: 0,                          // logged-out won't succeed on retry 
